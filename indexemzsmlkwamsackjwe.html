@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<!-- Island Reversi（アイランドリバーシ）- Animated Edition -->
-<!-- ver20260516_anim -->
+<!-- Island Reversi（アイランドリバーシ） -->
+<!-- ver20260516 -->
 <!-- Copyright (C) 2026 Factory Digital Entertainment. All rights reserved. -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Island Reversi (Animated)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>Island Reversi</title>
 
 <style>
 body{
@@ -17,22 +17,27 @@ body{
   display:flex;
   flex-direction:column;
   align-items:center;
+  padding: 10px;
+  box-sizing: border-box;
 }
 
 h1{
-  margin:12px 0 6px;
+  margin:6px 0;
+  font-size: 24px;
 }
 
 #info {
   margin-bottom: 10px;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.4;
   text-align: center;
   background: #1a1f26;
-  padding: 12px 24px;
+  padding: 10px 16px;
   border-radius: 8px;
   border: 1px solid #3a4659;
-  min-width: 450px;
+  width: 100%;
+  max-width: 500px;
+  box-sizing: border-box;
 }
 
 .score-row {
@@ -47,14 +52,14 @@ h1{
   margin-top: 6px;
   padding-top: 6px;
   border-top: 2px dashed #555;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: bold;
 }
 
 .turn-display {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: bold;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   color: #ffcc00;
 }
 
@@ -62,13 +67,38 @@ canvas{
   background:#101418;
   border:4px solid #555;
   box-shadow:0 0 24px #000;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 760 / 530; 
+  touch-action: none; 
+}
+
+.controls {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
 }
 
 button{
-  margin-top:12px;
-  padding:8px 18px;
-  font-size:16px;
+  padding: 10px 24px;
+  font-size:18px; 
   cursor:pointer;
+  border-radius: 6px;
+  border: none;
+  background: #3a4659;
+  color: white;
+  font-weight: bold;
+}
+button:active {
+  background: #556680;
+}
+
+/* モード切替ボタンのスタイル */
+#modeBtn {
+  background: #28a745;
+}
+#modeBtn:active {
+  background: #218838;
 }
 </style>
 </head>
@@ -78,9 +108,12 @@ button{
 
 <div id="info"></div>
 
-<canvas id="game" width="1100" height="920"></canvas>
+<canvas id="game" width="760" height="530"></canvas>
 
-<button id="resetBtn">RESET</button>
+<div class="controls">
+  <button id="modeBtn">MODE: 2 PLAYER</button>
+  <button id="resetBtn">RESET</button>
+</div>
 
 <script>
 const canvas = document.getElementById("game");
@@ -92,6 +125,11 @@ const EMPTY = 0;
 const FOREST = 1; 
 const SAND = -1;  
 
+// ゲームモードの定義
+const MODE_PVP = 0; // 2人対戦
+const MODE_PVC = 1; // CPU戦
+let gameMode = MODE_PVP; // デフォルトは2人対戦
+
 /* =========================
    TILE SETTINGS
 ========================= */
@@ -101,14 +139,12 @@ const HEIGHT_STEP = 18;
 
 let current = FOREST;
 let board = [];
-let gameTime = 0; // 【追記】アニメーション用の経過時間
+let gameTime = 0; 
+let isGameOver = false; 
 
 /* =========================
-   DOT ART DATA (ドット絵の定義)
-   W を OD（黄土色）に置き換え
+   DOT ART DATA
 ========================= */
-// 🌴 ヤシの木 (12x12)
-// G=緑, LG=薄緑, BR=茶色, OD=黄土色
 const DOT_PALM = [
   "....ODOOD...",
   "...ODGGGGO..",
@@ -134,14 +170,15 @@ function initBoard(){
   board[3][4] = { color:FOREST, h:1 };
   board[4][3] = { color:FOREST, h:1 };
   current = FOREST;
+  isGameOver = false;
 }
 
 /* =========================
-   ISOMETRIC
+   ISOMETRIC 
 ========================= */
 function iso(x,y,z=0){
   const ox = canvas.width * 0.5;
-  const oy = 110;
+  const oy = 40; 
   return {
     x: ox + (x - y) * TILE_W * 0.5,
     y: oy + (x + y) * TILE_H * 0.5 - z * HEIGHT_STEP
@@ -197,29 +234,77 @@ function get_max_land_chain(targetColor) {
 }
 
 function place(x,y){
+  if(isGameOver) return;
+
   const flips = getFlips(x, y, current);
   if(!flips.length) return;
   board[y][x].color = current;
   board[y][x].h = 1;
   for(const [fx,fy] of flips){
     const cell = board[fy][fx];
-    cell.h = Math.max(0, cell.h - 1); // 【微修正】0未満に沈まないように
+    cell.h = Math.max(0, cell.h - 1); 
     cell.color = current;
   }
+  
+  // 手番交代
   current *= -1;
+  
+  // パス判定
   if(!canMove(current)){
-    current *= -1;
-    if(!canMove(current)) endGame();
+    current *= -1; 
+    if(!canMove(current)) {
+      endGame();
+      return;
+    }
   }
-} // アニメーションループで描画するため、ここでの draw() は不要
+
+  // CPU戦モード、かつ次がSAND（CPU）の手番、かつゲーム継続中ならAIを動かす
+  if (gameMode === MODE_PVC && current === SAND && !isGameOver) {
+    doCPUMove();
+  }
+} 
 
 function endGame(){
+  isGameOver = true;
   let scores = calculateScores();
   setTimeout(()=>{
     alert(`GAME OVER\n\nWinner: ${scores.forestTotal > scores.sandTotal ? "FOREST" : scores.forestTotal < scores.sandTotal ? "SAND" : "DRAW"}!`);
   },100);
 }
 
+/* =========================
+   CPU AI LOGIC
+========================= */
+function doCPUMove() {
+  let validMoves = [];
+  
+  for(let y=0; y<SIZE; y++){
+    for(let x=0; x<SIZE; x++){
+      const flips = getFlips(x, y, SAND);
+      if(flips.length > 0) {
+        let score = flips.length;
+        // 四隅ボーナス
+        if((x === 0 || x === SIZE-1) && (y === 0 || y === SIZE-1)) {
+          score += 20; 
+        }
+        validMoves.push({ x, y, score });
+      }
+    }
+  }
+
+  if(validMoves.length === 0) return;
+
+  validMoves.sort((a, b) => b.score - a.score);
+  const bestMove = validMoves[0];
+
+  setTimeout(() => {
+    place(bestMove.x, bestMove.y);
+  }, 600);
+}
+
+/* =========================
+   SCORE CALCULATOR
+========================= */
 function calculateScores() {
   let forestStones=0; let sandStones=0; let forestAbove=0; let sandAbove=0;
   for(let y=0;y<SIZE;y++){
@@ -231,15 +316,19 @@ function calculateScores() {
   }
   const forestMaxChain = get_max_land_chain(FOREST);
   const sandMaxChain = get_max_land_chain(SAND);
-  const W_STONE = 1, W_ABOVE = 2, W_CHAIN = 2;
-  const b1=forestStones*W_STONE, w1=sandStones*W_STONE, b2=forestAbove*W_ABOVE, w2=sandAbove*W_ABOVE, b3=forestMaxChain*W_CHAIN, w3=sandMaxChain*W_CHAIN;
+  
+  const W_STONE = 1, W_ABOVE = 2, W_CHAIN = 3;
+  
+  const b1=forestStones*W_STONE, w1=sandStones*W_STONE, 
+        b2=forestAbove*W_ABOVE,  w2=sandAbove*W_ABOVE, 
+        b3=forestMaxChain*W_CHAIN, w3=sandMaxChain*W_CHAIN;
+        
   return { forestTotal: b1+b2+b3, sandTotal: w1+w2+w3, forestStones, sandStones, forestAbove, sandAbove, forestMaxChain, sandMaxChain, b1, w1, b2, w2, b3, w3 };
 }
 
 /* =========================
-   DOT ART DRAWER(風のしなり・アニメーション対応版)
+   DOT ART DRAWER
 ========================= */
-// 【修正】offsetX 引数を追加
 function drawPixelArt(baseX, baseY, artArray, pixelSize = 2, offsetX = 0, isWind = false) {
   const height = artArray.length;
   const width = artArray[0].length;
@@ -248,12 +337,9 @@ function drawPixelArt(baseX, baseY, artArray, pixelSize = 2, offsetX = 0, isWind
   const startY = baseY - (height * pixelSize) + 12;
 
   for (let r = 0; r < height; r++) {
-    // 【風のしなり計算】
-    // isWindがtrueの場合、ドット絵の下部（rがheightに近い）は動かさず、
-    // 上部（rが0に近い）ほど offsetX が強く効くように重みをかける
     let currentOffsetX = offsetX;
     if (isWind) {
-      const weight = (height - r) / height; // 上にいくほど1に近づき、下は0になる
+      const weight = (height - r) / height; 
       currentOffsetX = offsetX * weight;
     }
 
@@ -262,23 +348,24 @@ function drawPixelArt(baseX, baseY, artArray, pixelSize = 2, offsetX = 0, isWind
       if (char === ".") continue;
 
       let color = "#fff";
-      if (char === "G")  color = "#2d7a31"; // 緑
-      if (char === "LG") color = "#5cb860"; // 薄緑
-      if (char === "BR") color = "#8b5a2b"; // 茶色
-      if (char === "Y")  color = "#f4d068"; // 黄色
-      if (char === "W")  color = "#ffffff"; // 白
-      if (char === "D")  color = "#154d24"; // 深緑
-      if (char === "P")  color = "#ff6b8b"; // ピンク
-      if (char === "O")  color = "#ff9f43"; // オレンジ
-      if (char === "OD") color = "#c69c52"; // 【追加】黄土色 (Ochre)
+      if (char === "G")  color = "#2d7a31"; 
+      if (char === "LG") color = "#5cb860"; 
+      if (char === "BR") color = "#8b5a2b"; 
+      if (char === "Y")  color = "#f4d068"; 
+      if (char === "W")  color = "#ffffff"; 
+      if (char === "D")  color = "#154d24"; 
+      if (char === "P")  color = "#ff6b8b"; 
+      if (char === "O")  color = "#ff9f43"; 
+      if (char === "OD") color = "#c69c52"; 
 
       ctx.fillStyle = color;
       ctx.fillRect(startX + c * pixelSize + currentOffsetX, startY + r * pixelSize, pixelSize, pixelSize);
     }
   }
 }
+
 /* =========================
-   BLOCK(ヤシの木の風揺れを追加)
+   BLOCK
 ========================= */
 function drawBlock(x,y,h,color, isSubmerged = false){
   const top = iso(x,y,h);
@@ -292,28 +379,21 @@ function drawBlock(x,y,h,color, isSubmerged = false){
     else { leftColor = "#dfd1ab"; rightColor = "#c7ba95"; topColor = "#f2e4bd"; }
   }
 
-  // 1. 石の描画（省略・既存のまま）
   ctx.beginPath(); ctx.moveTo(top.x, top.y); ctx.lineTo(top.x + TILE_W/2, top.y + TILE_H/2); ctx.lineTo(top.x, top.y + TILE_H); ctx.lineTo(top.x - TILE_W/2, top.y + TILE_H/2); ctx.closePath(); ctx.fillStyle = topColor; ctx.fill();
   ctx.beginPath(); ctx.moveTo(top.x - TILE_W/2, top.y + TILE_H/2); ctx.lineTo(top.x, top.y + TILE_H); ctx.lineTo(top.x, top.y + TILE_H + h * HEIGHT_STEP); ctx.lineTo(top.x - TILE_W/2, top.y + TILE_H/2 + h * HEIGHT_STEP); ctx.closePath(); ctx.fillStyle = leftColor; ctx.fill();
   ctx.beginPath(); ctx.moveTo(top.x + TILE_W/2, top.y + TILE_H/2); ctx.lineTo(top.x, top.y + TILE_H); ctx.lineTo(top.x, top.y + TILE_H + h * HEIGHT_STEP); ctx.lineTo(top.x + TILE_W/2, top.y + TILE_H/2 + h * HEIGHT_STEP); ctx.closePath(); ctx.fillStyle = rightColor; ctx.fill();
   ctx.strokeStyle = "rgba(0,0,0,0.3)"; ctx.stroke();
 
-  // 2. 石の上の「生態系ドット絵」の描画
   if (!isSubmerged) {
     if (color === FOREST) {
-      // 【地上・森林】：ヤシの木を風（isWind = true）で揺らす
-      const windSpeed = gameTime * 0.003; // 風の速さ
-      const windAmount = 3.5;             // 風の強さ（しなる最大ピクセル）
+      const windSpeed = gameTime * 0.003; 
+      const windAmount = 3.5;             
       const windOffset = Math.sin(windSpeed + (x + y) * 0.4) * windAmount;
-
-      // 引数の最後に windOffset と true(isWind) を渡す
       drawPixelArt(top.x, top.y + TILE_H/2, DOT_PALM, 2.5, windOffset, true);
     } else {
-      // 地上・砂浜：砂つぶ
       drawPixelArt(top.x, top.y + TILE_H/2, DOT_SAND, 3);
     }
   } else {
-    // 海中：海藻・サンゴ（既存の水中ベースの揺れ、isWindはfalse）
     const swaySpeed = gameTime * 0.004;
     const swayAmount = 2.0;
     const offset = Math.sin(swaySpeed + (x + y) * 0.5) * swayAmount;
@@ -341,35 +421,26 @@ function drawGround(x, y) {
   ctx.closePath();
 
   if (cell.h <= 0) {
-    // --- 【水没マスのベースカラー】 ---
     ctx.fillStyle = (x + y) % 2 ? "#3a9eff" : "#258fff";
     ctx.fill();
 
-    // --- 【太陽光の反射＆水流エフェクトを追加】 ---
     ctx.save();
-    // マスの形状（ひし形）でクリッピングして、はみ出さないようにする
     ctx.clip(); 
 
-    // 時間経過と座標を使って、斜めに流れる光の波（水流と反射）を計算
     const flowSpeed = gameTime * 0.003;
-    // サイン波を組み合わせて、単調じゃない「キラキラした揺らぎ」を作る
     const light = Math.sin((x - y) * 0.8 + flowSpeed) * Math.cos((x + y) * 0.4 - flowSpeed * 0.5);
     
-    if (light > 0.3) { // 一定以上の強さの光の時だけ描画（きらめきを表現）
-      // 光の強さに応じて透明度を変化させる
+    if (light > 0.3) { 
       const alpha = (light - 0.3) * 0.4; 
       ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
       ctx.fill();
     }
 
     ctx.restore();
-
-    // 水没マスの枠線
     ctx.strokeStyle = "#17f";
     ctx.stroke();
 
   } else {
-    // 地上の描画（変更なし）
     ctx.fillStyle = (x + y) % 2 ? "#2f7f46" : "#3d9552";
     ctx.strokeStyle = "#1d5";
     ctx.fill();
@@ -378,6 +449,10 @@ function drawGround(x, y) {
 }
 
 function drawHints(){
+  // CPU戦かつCPU手番のときは、プレイヤーのヒントドットを表示しない
+  if(gameMode === MODE_PVC && current === SAND) return;
+  if(isGameOver) return;
+  
   ctx.fillStyle = "rgba(255,255,0,0.75)";
   for(let y=0;y<SIZE;y++){
     for(let x=0;x<SIZE;x++){
@@ -392,12 +467,10 @@ function drawHints(){
    DRAW & ANIMATION LOOP
 ========================= */
 function draw(timestamp){
-  // 【追記】ゲーム時間の更新
   gameTime = timestamp;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  /* ground -> blocks -> hints */
   for(let y=0;y<SIZE;y++) for(let x=0;x<SIZE;x++) drawGround(x,y);
   for(let y=0;y<SIZE;y++){
     for(let x=0;x<SIZE;x++){
@@ -407,26 +480,46 @@ function draw(timestamp){
   }
   drawHints();
 
-  /* score display */
   const s = calculateScores();
+  
+  // モードと手番に応じたテキスト表記の分岐
+  let turnText = "";
+  if(isGameOver) {
+    turnText = "GAME OVER";
+  } else {
+    if (gameMode === MODE_PVP) {
+      turnText = current === FOREST ? "PLAYER 1 : FOREST (🌴)" : "PLAYER 2 : SAND (✨)";
+    } else {
+      turnText = current === FOREST ? "YOUR TURN (🌴/🌿)" : "CPU THINKING... (✨/🪸)";
+    }
+  }
+
   document.getElementById("info").innerHTML = `
-<div class="turn-display">TURN : ${current === FOREST ? "FOREST (🌴/🌿)" : "SAND (✨/🪸)"}</div>
-<div class="score-row"><span>① Stones:</span> <span>FOREST: ${s.b1}pt / SAND: ${s.w1}pt</span></div>
-<div class="score-row"><span>② ABOVE WATER:</span> <span>FOREST: ${s.b2}pt / SAND: ${s.w2}pt</span></div>
-<div class="score-row"><span>③ MAX AREA:</span> <span>FOREST: ${s.b3}pt / SAND: ${s.w3}pt</span></div>
+<div class="turn-display" style="color: ${current === FOREST ? '#ffcc00' : '#00eeee'}">${turnText}</div>
+<div class="score-row"><span>① STONES:</span> <span>FOREST: ${s.b1}pt / SAND: ${s.w1}pt</span></div>
+<div class="score-row"><span>② ON THE WATER:Bonus x2</span> <span>FOREST: ${s.b2}pt / SAND: ${s.w2}pt</span></div>
+<div class="score-row"><span>③ OWN MAX AREA:Bonus x3</span> <span>FOREST: ${s.b3}pt / SAND: ${s.w3}pt</span></div>
 <div class="total-row"><span>TOTAL:</span> <span>FOREST: ${s.forestTotal} pts / SAND: ${s.sandTotal} pts</span></div>
 `;
 
-  // 【追記】次のフレームをリクエスト
   requestAnimationFrame(draw);
 }
 
 /* =========================
-   EVENTS
+   EVENTS 
 ========================= */
-canvas.addEventListener("click",(e)=>{
+function handlePointerDown(clientX, clientY) {
+  // CPU戦モードかつCPU手番、またはゲーム終了時は操作をガード
+  if ((gameMode === MODE_PVC && current === SAND) || isGameOver) return;
+
   const rect = canvas.getBoundingClientRect();
-  const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
+  
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+
+  const mx = (clientX - rect.left) * scaleX; 
+  const my = (clientY - rect.top) * scaleY;
+
   let best = null; let bestD = Infinity;
   for(let y=0;y<SIZE;y++){
     for(let x=0;x<SIZE;x++){
@@ -435,20 +528,44 @@ canvas.addEventListener("click",(e)=>{
       if(d < bestD){ bestD = d; best = {x,y}; }
     }
   }
-  if(best && bestD < 2600) place(best.x, best.y);
+  if(best && bestD < 1200) place(best.x, best.y);
+}
+
+canvas.addEventListener("mousedown", (e) => {
+  handlePointerDown(e.clientX, e.clientY);
 });
 
+canvas.addEventListener("touchstart", (e) => {
+  if(e.touches.length > 0) {
+    handlePointerDown(e.touches[0].clientX, e.touches[0].clientY);
+  }
+});
+
+// RESETボタン
 document.getElementById("resetBtn").addEventListener("click",()=>{ initBoard(); });
+
+// MODE切替ボタンのイベント
+const modeBtn = document.getElementById("modeBtn");
+modeBtn.addEventListener("click", () => {
+  if (gameMode === MODE_PVP) {
+    gameMode = MODE_PVC;
+    modeBtn.innerText = "MODE: VS CPU";
+    modeBtn.style.background = "#dc3545"; // CPU戦は赤っぽく
+  } else {
+    gameMode = MODE_PVP;
+    modeBtn.innerText = "MODE: 2 PLAYER";
+    modeBtn.style.background = "#28a745"; // 2人対戦は緑っぽく
+  }
+  initBoard(); // モードを切り替えたら盤面をリセット
+});
 
 /* =========================
    START
 ========================= */
 initBoard();
-// draw(); // 単発呼び出しをコメントアウト
-requestAnimationFrame(draw); // アニメーションループを開始
+requestAnimationFrame(draw); 
 
 </script>
-<p>Copyright (C) 2026 Factory Digital Entertainment. All rights reserved.</p>
-<p><img src="./img/fde.png" width="250px;max-width: 50%; height: auto;" alt="©2026 Factory Digital Entertainment"></p>
+<p style="text-align:center; font-size:12px; color:#888;">Copyright (C) 2026 Factory Digital Entertainment. All rights reserved.</p>
 </body>
 </html>
