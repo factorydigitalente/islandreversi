@@ -497,8 +497,8 @@ function draw(timestamp){
   document.getElementById("info").innerHTML = `
 <div class="turn-display" style="color: ${current === FOREST ? '#ffcc00' : '#00eeee'}">${turnText}</div>
 <div class="score-row"><span>① STONES:</span> <span>FOREST: ${s.b1}pt / SAND: ${s.w1}pt</span></div>
-<div class="score-row"><span>② ON THE WATER:Bonus x2</span> <span>FOREST: ${s.b2}pt / SAND: ${s.w2}pt</span></div>
-<div class="score-row"><span>③ OWN MAX AREA:Bonus x3</span> <span>FOREST: ${s.b3}pt / SAND: ${s.w3}pt</span></div>
+<div class="score-row"><span>② ON WATER:x2</span> <span>FOREST: ${s.b2}pt / SAND: ${s.w2}pt</span></div>
+<div class="score-row"><span>③ MAX AREA:x3</span> <span>FOREST: ${s.b3}pt / SAND: ${s.w3}pt</span></div>
 <div class="total-row"><span>TOTAL:</span> <span>FOREST: ${s.forestTotal} pts / SAND: ${s.sandTotal} pts</span></div>
 `;
 
