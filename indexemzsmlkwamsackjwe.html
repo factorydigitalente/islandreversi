@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<!-- Island Reversi（アイランドリバーシ）- Animated Edition -->
+<!-- ver20260516_anim -->
+<!-- Copyright (C) 2026 Factory Digital Entertainment. All rights reserved. -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Island Reversi (Animated)</title>
+
+<style>
+body{
+  margin:0;
+  background:#111;
+  color:white;
+  font-family:sans-serif;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+}
+
+h1{
+  margin:12px 0 6px;
+}
+
+#info {
+  margin-bottom: 10px;
+  font-size: 16px;
+  line-height: 1.4;
+  text-align: center;
+  background: #1a1f26;
+  padding: 12px 24px;
+  border-radius: 8px;
+  border: 1px solid #3a4659;
+  min-width: 450px;
+}
+
+.score-row {
+  display: flex;
+  justify-content: space-between;
+  margin: 2px 0;
+}
+
+.total-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 2px dashed #555;
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.turn-display {
+  font-size: 20px;
+  font-weight: bold;
+  margin-bottom: 8px;
+  color: #ffcc00;
+}
+
+canvas{
+  background:#101418;
+  border:4px solid #555;
+  box-shadow:0 0 24px #000;
+}
+
+button{
+  margin-top:12px;
+  padding:8px 18px;
+  font-size:16px;
+  cursor:pointer;
+}
+</style>
+</head>
+<body>
+
+<h1>Island Reversi</h1>
+
+<div id="info"></div>
+
+<canvas id="game" width="1100" height="920"></canvas>
+
+<button id="resetBtn">RESET</button>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const SIZE = 8;
+
+const EMPTY = 0;
+const FOREST = 1; 
+const SAND = -1;  
+
+/* =========================
+   TILE SETTINGS
+========================= */
+const TILE_W = 86;
+const TILE_H = 58;
+const HEIGHT_STEP = 18;
+
+let current = FOREST;
+let board = [];
+let gameTime = 0; // 【追記】アニメーション用の経過時間
+
+/* =========================
+   DOT ART DATA (ドット絵の定義)
+   W を OD（黄土色）に置き換え
+========================= */
+// 🌴 ヤシの木 (12x12)
+// G=緑, LG=薄緑, BR=茶色, OD=黄土色
+const DOT_PALM = [
+  "....ODOOD...",
+  "...ODGGGGO..",
+  "..GGGGGGGGG.",
+  "..OD.GGGG.O.",
+  ".....ODOD...",
+  "......OD....",
+  "......OD....",
+  ".....OD.....",
+  ".....OD.....",
+  "....OD......",
+  "....OD......",
+  "...ODOD....."
+];
+const DOT_SAND = ["........","....W...","...WYW..","....W...","........","..Y.....","........","......Y."];
+const DOT_KELP = ["....G...","...GD...","...DG...","..GGD...","..DGG...","...DG...","...GD...","..GGD...","..DGG...","...DG...","...GD...","..GGDD.."];
+const DOT_CORAL = ["....P...O...","....P..O....","..P.P.O.O...","..P.P.O.O...","...PPP.OO...","....P..O....","....PPPP....",".....PP.....",".....PP.....",".....PP.....",".....PP.....","....PPPP...."];
+
+function initBoard(){
+  board = Array.from({length:SIZE},()=>Array.from({length:SIZE},()=>({color:EMPTY, h:0})));
+  board[3][3] = { color:SAND,   h:1 };
+  board[4][4] = { color:SAND,   h:1 };
+  board[3][4] = { color:FOREST, h:1 };
+  board[4][3] = { color:FOREST, h:1 };
+  current = FOREST;
+}
+
+/* =========================
+   ISOMETRIC
+========================= */
+function iso(x,y,z=0){
+  const ox = canvas.width * 0.5;
+  const oy = 110;
+  return {
+    x: ox + (x - y) * TILE_W * 0.5,
+    y: oy + (x + y) * TILE_H * 0.5 - z * HEIGHT_STEP
+  };
+}
+
+/* =========================
+   GAME LOGIC
+========================= */
+function inside(x,y){ return x>=0 && y>=0 && x<SIZE && y<SIZE; }
+const dirs = [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]];
+
+function getFlips(x,y,p){
+  if(board[y][x].color !== EMPTY) return [];
+  let flips = [];
+  for(const [dx,dy] of dirs){
+    let cx = x + dx; let cy = y + dy; let line = [];
+    while(inside(cx,cy) && board[cy][cx].color === -p){
+      line.push([cx,cy]); cx += dx; cy += dy;
+    }
+    if(line.length && inside(cx,cy) && board[cy][cx].color === p) flips.push(...line);
+  }
+  return flips;
+}
+
+function canMove(p){
+  for(let y=0;y<SIZE;y++) for(let x=0;x<SIZE;x++) if(getFlips(x,y,p).length) return true;
+  return false;
+}
+
+function get_max_land_chain(targetColor) {
+  let visited = Array.from({length:SIZE}, () => Array(SIZE).fill(false));
+  let maxChain = 0;
+  const crossDirs = [[0,-1], [0,1], [-1,0], [1,0]];
+  for(let y=0; y<SIZE; y++){
+    for(let x=0; x<SIZE; x++){
+      if(!visited[y][x] && board[y][x].h > 0 && board[y][x].color === targetColor) {
+        let queue = [[x, y]]; visited[y][x] = true; let chainCount = 0;
+        while(queue.length > 0) {
+          let [cx, cy] = queue.shift(); chainCount++;
+          for(const [dx, dy] of crossDirs) {
+            let nx = cx + dx; let ny = cy + dy;
+            if(inside(nx, ny) && !visited[ny][nx] && board[ny][nx].h > 0 && board[ny][nx].color === targetColor) {
+              visited[ny][nx] = true; queue.push([nx, ny]);
+            }
+          }
+        }
+        if(chainCount > maxChain) maxChain = chainCount;
+      }
+    }
+  }
+  return maxChain;
+}
+
+function place(x,y){
+  const flips = getFlips(x, y, current);
+  if(!flips.length) return;
+  board[y][x].color = current;
+  board[y][x].h = 1;
+  for(const [fx,fy] of flips){
+    const cell = board[fy][fx];
+    cell.h = Math.max(0, cell.h - 1); // 【微修正】0未満に沈まないように
+    cell.color = current;
+  }
+  current *= -1;
+  if(!canMove(current)){
+    current *= -1;
+    if(!canMove(current)) endGame();
+  }
+} // アニメーションループで描画するため、ここでの draw() は不要
+
+function endGame(){
+  let scores = calculateScores();
+  setTimeout(()=>{
+    alert(`GAME OVER\n\nWinner: ${scores.forestTotal > scores.sandTotal ? "FOREST" : scores.forestTotal < scores.sandTotal ? "SAND" : "DRAW"}!`);
+  },100);
+}
+
+function calculateScores() {
+  let forestStones=0; let sandStones=0; let forestAbove=0; let sandAbove=0;
+  for(let y=0;y<SIZE;y++){
+    for(let x=0;x<SIZE;x++){
+      const c = board[y][x];
+      if(c.color===FOREST){ forestStones++; if(c.h>0) forestAbove++; }
+      if(c.color===SAND){ sandStones++; if(c.h>0) sandAbove++; }
+    }
+  }
+  const forestMaxChain = get_max_land_chain(FOREST);
+  const sandMaxChain = get_max_land_chain(SAND);
+  const W_STONE = 1, W_ABOVE = 2, W_CHAIN = 2;
+  const b1=forestStones*W_STONE, w1=sandStones*W_STONE, b2=forestAbove*W_ABOVE, w2=sandAbove*W_ABOVE, b3=forestMaxChain*W_CHAIN, w3=sandMaxChain*W_CHAIN;
+  return { forestTotal: b1+b2+b3, sandTotal: w1+w2+w3, forestStones, sandStones, forestAbove, sandAbove, forestMaxChain, sandMaxChain, b1, w1, b2, w2, b3, w3 };
+}
+
+/* =========================
+   DOT ART DRAWER(風のしなり・アニメーション対応版)
+========================= */
+// 【修正】offsetX 引数を追加
+function drawPixelArt(baseX, baseY, artArray, pixelSize = 2, offsetX = 0, isWind = false) {
+  const height = artArray.length;
+  const width = artArray[0].length;
+
+  const startX = baseX - (width * pixelSize) / 2;
+  const startY = baseY - (height * pixelSize) + 12;
+
+  for (let r = 0; r < height; r++) {
+    // 【風のしなり計算】
+    // isWindがtrueの場合、ドット絵の下部（rがheightに近い）は動かさず、
+    // 上部（rが0に近い）ほど offsetX が強く効くように重みをかける
+    let currentOffsetX = offsetX;
+    if (isWind) {
+      const weight = (height - r) / height; // 上にいくほど1に近づき、下は0になる
+      currentOffsetX = offsetX * weight;
+    }
+
+    for (let c = 0; c < width; c++) {
+      const char = artArray[r][c];
+      if (char === ".") continue;
+
+      let color = "#fff";
+      if (char === "G")  color = "#2d7a31"; // 緑
+      if (char === "LG") color = "#5cb860"; // 薄緑
+      if (char === "BR") color = "#8b5a2b"; // 茶色
+      if (char === "Y")  color = "#f4d068"; // 黄色
+      if (char === "W")  color = "#ffffff"; // 白
+      if (char === "D")  color = "#154d24"; // 深緑
+      if (char === "P")  color = "#ff6b8b"; // ピンク
+      if (char === "O")  color = "#ff9f43"; // オレンジ
+      if (char === "OD") color = "#c69c52"; // 【追加】黄土色 (Ochre)
+
+      ctx.fillStyle = color;
+      ctx.fillRect(startX + c * pixelSize + currentOffsetX, startY + r * pixelSize, pixelSize, pixelSize);
+    }
+  }
+}
+/* =========================
+   BLOCK(ヤシの木の風揺れを追加)
+========================= */
+function drawBlock(x,y,h,color, isSubmerged = false){
+  const top = iso(x,y,h);
+  let leftColor, rightColor, topColor;
+
+  if (isSubmerged) {
+    if (color === FOREST) { leftColor = "#1a5e53"; rightColor = "#11423a"; topColor = "#237d6e"; }
+    else { leftColor = "#7ac5eb"; rightColor = "#5da8cf"; topColor = "#9bdcff"; }
+  } else {
+    if (color === FOREST) { leftColor = "#318536"; rightColor = "#226326"; topColor = "#41a347"; }
+    else { leftColor = "#dfd1ab"; rightColor = "#c7ba95"; topColor = "#f2e4bd"; }
+  }
+
+  // 1. 石の描画（省略・既存のまま）
+  ctx.beginPath(); ctx.moveTo(top.x, top.y); ctx.lineTo(top.x + TILE_W/2, top.y + TILE_H/2); ctx.lineTo(top.x, top.y + TILE_H); ctx.lineTo(top.x - TILE_W/2, top.y + TILE_H/2); ctx.closePath(); ctx.fillStyle = topColor; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(top.x - TILE_W/2, top.y + TILE_H/2); ctx.lineTo(top.x, top.y + TILE_H); ctx.lineTo(top.x, top.y + TILE_H + h * HEIGHT_STEP); ctx.lineTo(top.x - TILE_W/2, top.y + TILE_H/2 + h * HEIGHT_STEP); ctx.closePath(); ctx.fillStyle = leftColor; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(top.x + TILE_W/2, top.y + TILE_H/2); ctx.lineTo(top.x, top.y + TILE_H); ctx.lineTo(top.x, top.y + TILE_H + h * HEIGHT_STEP); ctx.lineTo(top.x + TILE_W/2, top.y + TILE_H/2 + h * HEIGHT_STEP); ctx.closePath(); ctx.fillStyle = rightColor; ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,0.3)"; ctx.stroke();
+
+  // 2. 石の上の「生態系ドット絵」の描画
+  if (!isSubmerged) {
+    if (color === FOREST) {
+      // 【地上・森林】：ヤシの木を風（isWind = true）で揺らす
+      const windSpeed = gameTime * 0.003; // 風の速さ
+      const windAmount = 3.5;             // 風の強さ（しなる最大ピクセル）
+      const windOffset = Math.sin(windSpeed + (x + y) * 0.4) * windAmount;
+
+      // 引数の最後に windOffset と true(isWind) を渡す
+      drawPixelArt(top.x, top.y + TILE_H/2, DOT_PALM, 2.5, windOffset, true);
+    } else {
+      // 地上・砂浜：砂つぶ
+      drawPixelArt(top.x, top.y + TILE_H/2, DOT_SAND, 3);
+    }
+  } else {
+    // 海中：海藻・サンゴ（既存の水中ベースの揺れ、isWindはfalse）
+    const swaySpeed = gameTime * 0.004;
+    const swayAmount = 2.0;
+    const offset = Math.sin(swaySpeed + (x + y) * 0.5) * swayAmount;
+
+    if (color === FOREST) {
+      drawPixelArt(top.x, top.y + TILE_H/2, DOT_KELP, 2.5, offset, false);
+    } else {
+      drawPixelArt(top.x, top.y + TILE_H/2, DOT_CORAL, 2.5, offset, false);
+    }
+  }
+}
+
+/* =========================
+   GROUND & HINTS
+========================= */
+function drawGround(x, y) {
+  const cell = board[y][x];
+  const p = iso(x, y, 0);
+
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+  ctx.lineTo(p.x + TILE_W/2, p.y + TILE_H/2);
+  ctx.lineTo(p.x, p.y + TILE_H);
+  ctx.lineTo(p.x - TILE_W/2, p.y + TILE_H/2);
+  ctx.closePath();
+
+  if (cell.h <= 0) {
+    // --- 【水没マスのベースカラー】 ---
+    ctx.fillStyle = (x + y) % 2 ? "#3a9eff" : "#258fff";
+    ctx.fill();
+
+    // --- 【太陽光の反射＆水流エフェクトを追加】 ---
+    ctx.save();
+    // マスの形状（ひし形）でクリッピングして、はみ出さないようにする
+    ctx.clip(); 
+
+    // 時間経過と座標を使って、斜めに流れる光の波（水流と反射）を計算
+    const flowSpeed = gameTime * 0.003;
+    // サイン波を組み合わせて、単調じゃない「キラキラした揺らぎ」を作る
+    const light = Math.sin((x - y) * 0.8 + flowSpeed) * Math.cos((x + y) * 0.4 - flowSpeed * 0.5);
+    
+    if (light > 0.3) { // 一定以上の強さの光の時だけ描画（きらめきを表現）
+      // 光の強さに応じて透明度を変化させる
+      const alpha = (light - 0.3) * 0.4; 
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.fill();
+    }
+
+    ctx.restore();
+
+    // 水没マスの枠線
+    ctx.strokeStyle = "#17f";
+    ctx.stroke();
+
+  } else {
+    // 地上の描画（変更なし）
+    ctx.fillStyle = (x + y) % 2 ? "#2f7f46" : "#3d9552";
+    ctx.strokeStyle = "#1d5";
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
+function drawHints(){
+  ctx.fillStyle = "rgba(255,255,0,0.75)";
+  for(let y=0;y<SIZE;y++){
+    for(let x=0;x<SIZE;x++){
+      if(getFlips(x,y,current).length){
+        const p = iso(x,y,0); ctx.beginPath(); ctx.arc(p.x, p.y + TILE_H/2, 5, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
+}
+
+/* =========================
+   DRAW & ANIMATION LOOP
+========================= */
+function draw(timestamp){
+  // 【追記】ゲーム時間の更新
+  gameTime = timestamp;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  /* ground -> blocks -> hints */
+  for(let y=0;y<SIZE;y++) for(let x=0;x<SIZE;x++) drawGround(x,y);
+  for(let y=0;y<SIZE;y++){
+    for(let x=0;x<SIZE;x++){
+      const c = board[y][x]; if(c.color === EMPTY) continue;
+      drawBlock(x, y, Math.max(0.15, c.h), c.color, c.h <= 0);
+    }
+  }
+  drawHints();
+
+  /* score display */
+  const s = calculateScores();
+  document.getElementById("info").innerHTML = `
+<div class="turn-display">TURN : ${current === FOREST ? "FOREST (🌴/🌿)" : "SAND (✨/🪸)"}</div>
+<div class="score-row"><span>① Stones:</span> <span>FOREST: ${s.b1}pt / SAND: ${s.w1}pt</span></div>
+<div class="score-row"><span>② ABOVE WATER:</span> <span>FOREST: ${s.b2}pt / SAND: ${s.w2}pt</span></div>
+<div class="score-row"><span>③ MAX AREA:</span> <span>FOREST: ${s.b3}pt / SAND: ${s.w3}pt</span></div>
+<div class="total-row"><span>TOTAL:</span> <span>FOREST: ${s.forestTotal} pts / SAND: ${s.sandTotal} pts</span></div>
+`;
+
+  // 【追記】次のフレームをリクエスト
+  requestAnimationFrame(draw);
+}
+
+/* =========================
+   EVENTS
+========================= */
+canvas.addEventListener("click",(e)=>{
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
+  let best = null; let bestD = Infinity;
+  for(let y=0;y<SIZE;y++){
+    for(let x=0;x<SIZE;x++){
+      const p = iso(x,y,0); const tx = p.x; const ty = p.y + TILE_H/2;
+      const dx = mx - tx; const dy = my - ty; const d = dx*dx + dy*dy;
+      if(d < bestD){ bestD = d; best = {x,y}; }
+    }
+  }
+  if(best && bestD < 2600) place(best.x, best.y);
+});
+
+document.getElementById("resetBtn").addEventListener("click",()=>{ initBoard(); });
+
+/* =========================
+   START
+========================= */
+initBoard();
+// draw(); // 単発呼び出しをコメントアウト
+requestAnimationFrame(draw); // アニメーションループを開始
+
+</script>
+<p>Copyright (C) 2026 Factory Digital Entertainment. All rights reserved.</p>
+<p><img src="./img/fde.png" width="250px;max-width: 50%; height: auto;" alt="©2026 Factory Digital Entertainment"></p>
+</body>
+</html>
