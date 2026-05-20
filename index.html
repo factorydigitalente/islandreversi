@@ -159,9 +159,46 @@ const DOT_PALM = [
   "....OD......",
   "...ODOD....."
 ];
-const DOT_SAND = ["........","....W...","...WYW..","....W...","........","..Y.....","........","......Y."];
-const DOT_KELP = ["....G...","...GD...","...DG...","..GGD...","..DGG...","...DG...","...GD...","..GGD...","..DGG...","...DG...","...GD...","..GGDD.."];
-const DOT_CORAL = ["....P...O...","....P..O....","..P.P.O.O...","..P.P.O.O...","...PPP.OO...","....P..O....","....PPPP....",".....PP.....",".....PP.....",".....PP.....",".....PP.....","....PPPP...."];
+const DOT_SAND = [
+  "........",
+  "....W...",
+  "...WYW..",
+  "....W...",
+  "........",
+  "..Y.....",
+  "........",
+  "......Y."
+];
+
+const DOT_KELP = [
+  "....G...",
+  "...GD...",
+  "...DG...",
+  "..GGD...",
+  "..DGG...",
+  "...DG...",
+  "...GD...",
+  "..GGD...",
+  "..DGG...",
+  "...DG...",
+  "...GD...",
+  "..GGDD.."
+];
+
+const DOT_CORAL = [
+  "....P...O...",
+  "....P..O....",
+  "..P.P.O.O...",
+  "..P.P.O.O...",
+  "...PPP.OO...",
+  "....P..O....",
+  "....PPPP....",
+  ".....PP.....",
+  ".....PP.....",
+  ".....PP.....",
+  ".....PP.....",
+  "....PPPP...."
+];
 
 function initBoard(){
   board = Array.from({length:SIZE},()=>Array.from({length:SIZE},()=>({color:EMPTY, h:0})));
@@ -246,30 +283,89 @@ function place(x,y){
     cell.color = current;
   }
   
-  // 手番交代
+  // 手番交代の処理
+  switchTurn();
+}
+
+// 手番交代・パス・CPUトリガーを一元管理する関数
+function switchTurn() {
   current *= -1;
   
-  // パス判定
   if(!canMove(current)){
+    // 現在の手番プレイヤーがどこも置けない場合（パス）
     current *= -1; 
     if(!canMove(current)) {
+      // 両者置けない場合はゲーム終了
       endGame();
       return;
     }
+    // パスが起きて再びCPUの手番になった場合も、自動思考を走らせる
+    if (gameMode === MODE_PVC && current === SAND && !isGameOver) {
+      doCPUMove();
+    }
+  } else {
+    // 通常の手番交代でCPUのターンになった場合
+    if (gameMode === MODE_PVC && current === SAND && !isGameOver) {
+      doCPUMove();
+    }
   }
-
-  // CPU戦モード、かつ次がSAND（CPU）の手番、かつゲーム継続中ならAIを動かす
-  if (gameMode === MODE_PVC && current === SAND && !isGameOver) {
-    doCPUMove();
-  }
-} 
+}
 
 function endGame(){
   isGameOver = true;
-  let scores = calculateScores();
-  setTimeout(()=>{
-    alert(`GAME OVER\n\nWinner: ${scores.forestTotal > scores.sandTotal ? "FOREST" : scores.forestTotal < scores.sandTotal ? "SAND" : "DRAW"}!`);
-  },100);
+}
+
+/* =========================
+   GAME OVER BOARD DRAWER
+========================= */
+function drawGameOverBoard(scores) {
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+
+  // 半透明の背景マスク
+  ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // リザルトボード枠
+  ctx.fillStyle = "#1a1f26";
+  ctx.strokeStyle = "#ffcc00";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.roundRect(cx - 180, cy - 110, 360, 220, 12);
+  ctx.fill();
+  ctx.stroke();
+  
+  // ★引き継がれないように、線の太さをデフォルト(1)に戻す
+  ctx.lineWidth = 1;
+
+  // 勝敗テキスト判定
+  let winnerText = "DRAW";
+  let winnerColor = "#ffffff";
+  if (scores.forestTotal > scores.sandTotal) {
+    winnerText = "WINNER: FOREST! 🌴/🌿";
+    winnerColor = "#41a347";
+  } else if (scores.sandTotal > scores.forestTotal) {
+    winnerText = "WINNER: SAND! ✨/🪸";
+    winnerColor = "#f2e4bd";
+  }
+
+  // テキスト描画
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  ctx.font = "bold 28px sans-serif";
+  ctx.fillStyle = "#ff5555";
+  ctx.fillText("GAME OVER", cx, cy - 65);
+
+  ctx.font = "bold 22px sans-serif";
+  ctx.fillStyle = winnerColor;
+  ctx.fillText(winnerText, cx, cy - 20);
+
+  // スコア詳細
+  ctx.font = "20px sans-serif";
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(`FOREST: ${scores.forestTotal} pts`, cx, cy + 25);
+  ctx.fillText(`SAND: ${scores.sandTotal} pts`, cx, cy + 55);
 }
 
 /* =========================
@@ -488,19 +584,24 @@ function draw(timestamp){
     turnText = "GAME OVER";
   } else {
     if (gameMode === MODE_PVP) {
-      turnText = current === FOREST ? "PLAYER 1 : FOREST (🌴)" : "PLAYER 2 : SAND (✨)";
+      turnText = current === FOREST ? "PLAYER 1 : FOREST (🌴/🌿)" : "PLAYER 2 : SAND (✨/🪸)";
     } else {
       turnText = current === FOREST ? "YOUR TURN (🌴/🌿)" : "CPU THINKING... (✨/🪸)";
     }
   }
 
   document.getElementById("info").innerHTML = `
-<div class="turn-display" style="color: ${current === FOREST ? '#ffcc00' : '#00eeee'}">${turnText}</div>
+<div class="turn-display" style="color: ${isGameOver ? '#ff5555' : (current === FOREST ? '#ffcc00' : '#00eeee')}">${turnText}</div>
 <div class="score-row"><span>① STONES:</span> <span>FOREST: ${s.b1}pt / SAND: ${s.w1}pt</span></div>
 <div class="score-row"><span>② ON WATER:x2</span> <span>FOREST: ${s.b2}pt / SAND: ${s.w2}pt</span></div>
 <div class="score-row"><span>③ MAX AREA:x3</span> <span>FOREST: ${s.b3}pt / SAND: ${s.w3}pt</span></div>
 <div class="total-row"><span>TOTAL:</span> <span>FOREST: ${s.forestTotal} pts / SAND: ${s.sandTotal} pts</span></div>
 `;
+
+  // ゲームオーバー時はボードを上書き描画
+  if (isGameOver) {
+    drawGameOverBoard(s);
+  }
 
   requestAnimationFrame(draw);
 }
